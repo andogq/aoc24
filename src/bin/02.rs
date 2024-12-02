@@ -33,37 +33,26 @@ pub fn part_two(input: &str) -> Option<u32> {
                     .collect::<Vec<_>>()
             })
             .filter(|line| {
-                let dir = (line[0] as i32 - line[1] as i32).signum();
-                let valid = line.iter().tuple_windows().all(|(a, b)| {
-                    let diff = *a as i32 - *b as i32;
-
-                    diff.signum() == dir && (1..=3).contains(&diff.abs())
-                });
-
-                if valid {
-                    return true;
-                }
-
-                for skip in 0..line.len() {
-                    let line = line
+                (0..=line.len()).any(|skip| {
+                    let mut iter = line
                         .iter()
                         .enumerate()
-                        .filter_map(|(i, n)| if i == skip { None } else { Some(*n) })
-                        .collect::<Vec<_>>();
-                    let dir = (line[0] as i32 - line[1] as i32).signum();
+                        .filter(|(i, _)| *i != skip)
+                        .map(|(_, n)| n)
+                        .tuple_windows()
+                        .peekable();
 
-                    let valid = line.into_iter().tuple_windows().all(|(a, b)| {
-                        let diff = a as i32 - b as i32;
+                    let dir = iter
+                        .peek()
+                        .map(|(a, b)| (**a as i32 - **b as i32).signum())
+                        .unwrap();
+
+                    iter.all(|(a, b)| {
+                        let diff = *a as i32 - *b as i32;
 
                         diff.signum() == dir && (1..=3).contains(&diff.abs())
-                    });
-
-                    if valid {
-                        return true;
-                    }
-                }
-
-                false
+                    })
+                })
             })
             .count() as u32,
     )
