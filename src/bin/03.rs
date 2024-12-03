@@ -1,66 +1,105 @@
+use std::iter::Peekable;
+
+use itertools::{EitherOrBoth, Itertools};
+
 advent_of_code::solution!(3);
 
-#[derive(Default)]
-enum StateMachine1 {
-    #[default]
-    Mul,
-    ParamA,
-    ParamB {
-        param_a: u32,
-    },
+struct MemoryScanner<I: Iterator<Item = char>> {
+    iter: Peekable<I>,
 }
 
-impl StateMachine1 {
-    pub fn step(&mut self, iter: &mut impl Iterator<Item = char>) -> Option<(u32, u32)> {
-        match self {
-            StateMachine1::Mul => {
-                for c in ['m', 'u', 'l', '('] {
-                    if iter.next().map(|next_c| c != next_c).unwrap_or(true) {
-                        *self = Self::Mul;
-                        return None;
+#[derive(Default, Debug, Clone, Copy)]
+enum ScannerState {
+    #[default]
+    Start,
+    Number(usize),
+    Comma(usize),
+}
+
+impl<I: Iterator<Item = char>> MemoryScanner<I> {
+    pub fn new(chars: impl IntoIterator<Item = char, IntoIter = I>) -> Self {
+        Self {
+            iter: chars.into_iter().peekable(),
+        }
+    }
+
+    fn eat_string(&mut self, s: &str) -> Option<bool> {
+        for next in s.chars().zip_longest(&mut self.iter).take(s.len()) {
+            match next {
+                EitherOrBoth::Both(a, b) if a == b => {
+                    continue;
+                }
+                EitherOrBoth::Both(..) => {
+                    // Expected string longer than iterator, or the chars don't match
+                    return Some(false);
+                }
+                EitherOrBoth::Right(_) => {
+                    // Iterator longer than expected string
+                    return Some(true);
+                }
+                EitherOrBoth::Left(_) => {
+                    // Iterator exhausted
+                    return None;
+                }
+            }
+        }
+
+        // Exact size and match
+        Some(true)
+    }
+}
+
+impl<I: Iterator<Item = char>> Iterator for MemoryScanner<I> {
+    type Item = u32;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let mut state = ScannerState::default();
+
+        let mut next_number = 1;
+
+        loop {
+            match state {
+                ScannerState::Start => {
+                    if self.eat_string("mul(")? {
+                        state = ScannerState::Number(0);
+                        next_number = 1;
                     }
                 }
+                ScannerState::Number(i @ (0 | 1)) => {
+                    let mut number = None::<u32>;
 
-                *self = Self::ParamA;
+                    while let Some(n) = self
+                        .iter
+                        .next_if(|c| c.is_ascii_digit())
+                        .map(|c| c.to_digit(10).unwrap())
+                    {
+                        number = Some((number.unwrap_or_default() * 10) + n);
+                    }
 
-                None
-            }
-            StateMachine1::ParamA => {
-                let mut num = 0;
+                    let Some(number) = number else {
+                        state = ScannerState::Start;
+                        continue;
+                    };
 
-                loop {
-                    match iter.next() {
-                        Some(c) if c.is_ascii_digit() => {
-                            num = (num * 10) + c.to_digit(10).unwrap();
-                        }
-                        Some(',') => {
-                            *self = Self::ParamB { param_a: num };
-                            return None;
-                        }
-                        _ => {
-                            *self = Self::Mul;
-                            return None;
-                        }
+                    next_number *= number;
+                    state = ScannerState::Comma(i + 1);
+                }
+                ScannerState::Number(_) => {
+                    // Overran the available numbers
+                    state = ScannerState::Start;
+                }
+                ScannerState::Comma(1) => {
+                    if let Some(',') = self.iter.next() {
+                        state = ScannerState::Number(1);
+                    } else {
+                        state = ScannerState::Start;
                     }
                 }
-            }
-            StateMachine1::ParamB { param_a } => {
-                let mut num = 0;
-
-                loop {
-                    match iter.next() {
-                        Some(c) if c.is_ascii_digit() => {
-                            num = (num * 10) + c.to_digit(10).unwrap();
-                        }
-                        Some(')') | None => {
-                            let answer = (*param_a, num);
-                            *self = Self::Mul;
-                            return Some(answer);
-                        }
-                        _ => {
-                            *self = Self::Mul;
-                            return None;
-                        }
+                ScannerState::Comma(_) => {
+                    if let Some(')') = self.iter.next() {
+                        return Some(next_number);
+                    } else {
+                        state = ScannerState::Start;
                     }
                 }
             }
@@ -159,17 +198,7 @@ impl StateMachine2 {
 }
 
 pub fn part_one(input: &str) -> Option<u32> {
-    let mut iter = input.chars().peekable();
-
-    let mut machine = StateMachine1::default();
-    let mut answer = 0;
-    while iter.peek().is_some() {
-        if let Some((a, b)) = machine.step(&mut iter) {
-            answer += a * b;
-        }
-    }
-
-    Some(answer)
+    Some(MemoryScanner::new(input.chars().peekable()).sum())
 }
 
 pub fn part_two(input: &str) -> Option<u32> {
