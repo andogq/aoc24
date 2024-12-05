@@ -10,7 +10,12 @@ enum Order {
     After,
 }
 
-pub fn part_one(input: &str) -> Option<u32> {
+fn parse(
+    input: &str,
+) -> (
+    HashMap<(u32, u32), Order>,
+    impl Iterator<Item = Vec<u32>> + '_,
+) {
     let (rules, pages) = input.split_once("\n\n").unwrap();
 
     let rules = rules
@@ -28,14 +33,20 @@ pub fn part_one(input: &str) -> Option<u32> {
             map
         });
 
+    let pages = pages.lines().map(|line| {
+        line.split(",")
+            .map(|n| n.parse::<u32>().unwrap())
+            .collect::<Vec<_>>()
+    });
+
+    (rules, pages)
+}
+
+pub fn part_one(input: &str) -> Option<u32> {
+    let (rules, pages) = parse(input);
+
     Some(
         pages
-            .lines()
-            .map(|line| {
-                line.split(",")
-                    .map(|n| n.parse::<u32>().unwrap())
-                    .collect::<Vec<_>>()
-            })
             .filter(|line| {
                 line.iter().enumerate().all(|(i, left)| {
                     line[i + 1..]
@@ -50,31 +61,10 @@ pub fn part_one(input: &str) -> Option<u32> {
 }
 
 pub fn part_two(input: &str) -> Option<u32> {
-    let (rules, pages) = input.split_once("\n\n").unwrap();
-
-    let rules = rules
-        .lines()
-        .map(|line| {
-            line.split("|")
-                .map(|n| n.parse::<u32>().unwrap())
-                .next_tuple()
-                .unwrap()
-        })
-        .fold(HashMap::new(), |mut map, (left, right)| {
-            map.insert((left, right), Order::Before);
-            map.insert((right, left), Order::After);
-
-            map
-        });
+    let (rules, pages) = parse(input);
 
     Some(
         pages
-            .lines()
-            .map(|line| {
-                line.split(",")
-                    .map(|n| n.parse::<u32>().unwrap())
-                    .collect::<Vec<_>>()
-            })
             .filter(|line| {
                 !line.iter().enumerate().all(|(i, left)| {
                     line[i + 1..]
