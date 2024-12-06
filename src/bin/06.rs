@@ -48,6 +48,11 @@ impl<'map> Walker<'map> {
         }
     }
 
+    pub fn with_direction(mut self, direction: Direction) -> Self {
+        self.direction = direction;
+        self
+    }
+
     fn next_position(&self) -> Option<(u32, u32)> {
         let direction = <(i32, i32)>::from(self.direction);
 
@@ -63,7 +68,7 @@ impl<'map> Walker<'map> {
 }
 
 impl Iterator for Walker<'_> {
-    type Item = (u32, u32);
+    type Item = ((u32, u32), Direction);
 
     fn next(&mut self) -> Option<Self::Item> {
         // Emit this position
@@ -91,11 +96,11 @@ impl Iterator for Walker<'_> {
         // Prepare for next run
         self.position = next_position;
 
-        position
+        Some((position?, self.direction))
     }
 }
 
-pub fn part_one(input: &str) -> Option<u32> {
+fn parse(input: &str) -> ((u32, u32), Vec<Vec<bool>>) {
     let mut pos = (0, 0);
     let map = input
         .lines()
@@ -107,7 +112,7 @@ pub fn part_one(input: &str) -> Option<u32> {
                     '.' => true,
                     '#' => false,
                     '^' => {
-                        pos = (x, y);
+                        pos = (x as u32, y as u32);
                         true
                     }
                     _ => unreachable!(),
@@ -116,9 +121,15 @@ pub fn part_one(input: &str) -> Option<u32> {
         })
         .collect::<Vec<_>>();
 
+    (pos, map)
+}
+
+pub fn part_one(input: &str) -> Option<u32> {
+    let (pos, map) = parse(input);
+
     Some(
-        Walker::new((pos.0 as u32, pos.1 as u32), &map)
-            .fold(HashSet::new(), |mut visited, pos| {
+        Walker::new(pos, &map)
+            .fold(HashSet::new(), |mut visited, (pos, _)| {
                 visited.insert(pos);
 
                 visited
@@ -144,6 +155,6 @@ mod tests {
     #[test]
     fn test_part_two() {
         let result = part_two(&advent_of_code::template::read_file("examples", DAY));
-        assert_eq!(result, None);
+        assert_eq!(result, Some(6));
     }
 }
