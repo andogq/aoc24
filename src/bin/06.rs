@@ -33,14 +33,14 @@ impl From<Direction> for (i32, i32) {
     }
 }
 
-struct Walker<'map> {
+struct Walker {
     position: Option<(u32, u32)>,
     direction: Direction,
-    map: &'map Vec<Vec<bool>>,
+    map: Vec<Vec<bool>>,
 }
 
-impl<'map> Walker<'map> {
-    pub fn new(position: (u32, u32), map: &'map Vec<Vec<bool>>) -> Self {
+impl Walker {
+    pub fn new(position: (u32, u32), map: Vec<Vec<bool>>) -> Self {
         Self {
             position: Some(position),
             direction: Direction::default(),
@@ -50,6 +50,11 @@ impl<'map> Walker<'map> {
 
     pub fn with_direction(mut self, direction: Direction) -> Self {
         self.direction = direction;
+        self
+    }
+
+    pub fn with_wall(mut self, (x, y): (u32, u32)) -> Self {
+        self.map[y as usize][x as usize] = false;
         self
     }
 
@@ -67,7 +72,7 @@ impl<'map> Walker<'map> {
     }
 }
 
-impl Iterator for Walker<'_> {
+impl Iterator for Walker {
     type Item = ((u32, u32), Direction);
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -128,7 +133,7 @@ pub fn part_one(input: &str) -> Option<u32> {
     let (pos, map) = parse(input);
 
     Some(
-        Walker::new(pos, &map)
+        Walker::new(pos, map)
             .fold(HashSet::new(), |mut visited, (pos, _)| {
                 visited.insert(pos);
 
@@ -139,7 +144,65 @@ pub fn part_one(input: &str) -> Option<u32> {
 }
 
 pub fn part_two(input: &str) -> Option<u32> {
-    None
+    let (start_pos, map) = parse(input);
+
+    let mut visited = HashSet::new();
+
+    Some(
+        Walker::new(start_pos, map.clone())
+            .filter_map(|(pos, direction)| {
+                // Mark this position as visited
+                visited.insert(pos);
+
+                let wall_pos = {
+                    let direction = <(i32, i32)>::from(direction);
+
+                    let x = pos.0.checked_add_signed(direction.0)?;
+                    let y = pos.1.checked_add_signed(direction.1)?;
+
+                    if y as usize >= map.len() || x as usize >= map[y as usize].len() {
+                        return None;
+                    }
+
+                    (x, y)
+                };
+
+                if wall_pos == start_pos ||
+                    // Make sure that wall isn't placed on a previous location
+                    visited.contains(&wall_pos) ||
+                    // Make sure that a wall isn't being placed over an existing wall
+                    !map[wall_pos.1 as usize][wall_pos.0 as usize]
+                {
+                    return None;
+                }
+
+                Some((pos, direction, wall_pos))
+            })
+            .fold(HashSet::new(), |mut walls, (pos, direction, wall_pos)| {
+                // Deduplicate the walls
+                if walls.contains(&wall_pos) {
+                    return walls;
+                }
+
+                let mut visited = HashSet::new();
+
+                for (pos, dir) in Walker::new(pos, map.clone())
+                    .with_wall(wall_pos)
+                    .with_direction(direction.next())
+                {
+                    if visited.contains(&(pos, dir)) {
+                        // Loop found, save this wall
+                        walls.insert(wall_pos);
+                        break;
+                    }
+
+                    visited.insert((pos, dir));
+                }
+
+                walls
+            })
+            .len() as u32,
+    )
 }
 
 #[cfg(test)]
