@@ -28,13 +28,12 @@ pub fn part_one(input: &str) -> Option<u64> {
                         continue;
                     };
 
-                    if total % n == 0 {
-                        search.push_back((total / n, numbers.clone()));
-                    }
-
-                    if let Some(total) = total.checked_sub(n) {
-                        search.push_back((total, numbers));
-                    }
+                    search.extend(
+                        [(total % n == 0).then_some(total / n), total.checked_sub(n)]
+                            .into_iter()
+                            .flatten()
+                            .map(|total| (total, numbers.clone())),
+                    );
                 }
 
                 None
