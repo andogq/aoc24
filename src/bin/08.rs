@@ -57,7 +57,64 @@ pub fn part_one(input: &str) -> Option<u32> {
 }
 
 pub fn part_two(input: &str) -> Option<u32> {
-    None
+    let (height, width) = {
+        let mut lines = input.lines();
+
+        let width = lines.next().unwrap().len();
+        let height = lines.count() + 1;
+
+        (height, width)
+    };
+
+    Some(
+        input
+            .lines()
+            .enumerate()
+            .flat_map(|(y, line)| {
+                line.chars().enumerate().flat_map(move |(x, c)| match c {
+                    '.' => None,
+                    c => Some(((x, y), c)),
+                })
+            })
+            .fold(
+                HashMap::<char, Vec<(usize, usize)>>::new(),
+                |mut antennas, (pos, freqency)| {
+                    antennas.entry(freqency).or_default().push(pos);
+
+                    antennas
+                },
+            )
+            .values()
+            .flat_map(|antennas| {
+                antennas.iter().tuple_combinations().flat_map(|(a1, a2)| {
+                    let delta = (a2.0 as isize - a1.0 as isize, a2.1 as isize - a1.1 as isize);
+
+                    [(*a1, -1), (*a2, 1)].into_iter().flat_map(move |(p, d)| {
+                        let delta = (delta.0 * d, delta.1 * d);
+
+                        (0..)
+                            .map(move |i| (delta.0 * i, delta.1 * i))
+                            .map(move |(dx, dy)| {
+                                (p.0.checked_add_signed(dx), p.1.checked_add_signed(dy))
+                            })
+                            .map(move |(x, y)| {
+                                let x = x?;
+                                let y = y?;
+
+                                if x < width && y < height {
+                                    Some((x, y))
+                                } else {
+                                    None
+                                }
+                            })
+                            .take_while(|p| p.is_some())
+                            .flatten()
+                    })
+                })
+            })
+            .collect::<HashSet<_>>()
+            .len() as u32,
+    )
 }
 
 #[cfg(test)]
@@ -73,6 +130,6 @@ mod tests {
     #[test]
     fn test_part_two() {
         let result = part_two(&advent_of_code::template::read_file("examples", DAY));
-        assert_eq!(result, None);
+        assert_eq!(result, Some(34));
     }
 }
