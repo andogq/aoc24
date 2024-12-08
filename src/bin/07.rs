@@ -2,95 +2,71 @@ use std::collections::VecDeque;
 
 advent_of_code::solution!(7);
 
-pub fn part_one(input: &str) -> Option<u64> {
-    Some(
-        input
-            .lines()
-            .map(|line| line.split_once(": ").unwrap())
-            .map(|(total, numbers)| {
-                (
-                    total.parse::<u64>().unwrap(),
-                    numbers
-                        .split_whitespace()
-                        .map(|n| n.parse::<u64>().unwrap())
-                        .rev(),
-                )
-            })
-            .filter_map(|(original_total, numbers)| {
-                let mut search = VecDeque::from_iter([(original_total, numbers)]);
+fn check_mul(n: u128, total: u128) -> Option<u128> {
+    (n != 0 && total % n == 0).then(|| total / n)
+}
 
-                while let Some((total, mut numbers)) = search.pop_front() {
-                    let Some(n) = numbers.next() else {
-                        if total == 0 {
-                            return Some(original_total);
-                        }
+fn check_add(n: u128, total: u128) -> Option<u128> {
+    total.checked_sub(n)
+}
 
-                        continue;
-                    };
+fn check_append(n: u128, total: u128) -> Option<u128> {
+    // Build a base 10 mask of the number
+    //   12  ->  100 (tens)
+    //   123 -> 1000 (hundreds)
+    // This mask can be used to extract a portion of the total.
+    let mask = 10u128.pow((n as f64).log10() as u32 + 1);
 
-                    search.extend(
-                        [
-                            (n != 0 && total % n == 0).then(|| total / n),
-                            total.checked_sub(n),
-                        ]
-                        .into_iter()
-                        .flatten()
+    (total % mask == n).then_some(total / mask)
+}
+
+fn solve(input: &str, operator_checks: impl AsRef<[fn(u128, u128) -> Option<u128>]>) -> u128 {
+    input
+        .lines()
+        .map(|line| line.split_once(": ").unwrap())
+        .map(|(total, numbers)| {
+            (
+                total.parse().unwrap(),
+                numbers
+                    .split_whitespace()
+                    .map(|n| n.parse().unwrap())
+                    // Operators are applied left to right, so reverse them right to left
+                    .rev(),
+            )
+        })
+        .filter_map(|(original_total, numbers)| {
+            let mut search = VecDeque::from_iter([(original_total, numbers)]);
+
+            while let Some((total, mut numbers)) = search.pop_front() {
+                let Some(n) = numbers.next() else {
+                    // Total has been found!
+                    if total == 0 {
+                        return Some(original_total);
+                    }
+
+                    continue;
+                };
+
+                search.extend(
+                    operator_checks
+                        .as_ref()
+                        .iter()
+                        .flat_map(|check| check(n, total))
                         .map(|total| (total, numbers.clone())),
-                    );
-                }
+                );
+            }
 
-                None
-            })
-            .sum(),
-    )
+            None
+        })
+        .sum()
+}
+
+pub fn part_one(input: &str) -> Option<u128> {
+    Some(solve(input, [check_mul, check_add]))
 }
 
 pub fn part_two(input: &str) -> Option<u128> {
-    Some(
-        input
-            .lines()
-            .map(|line| line.split_once(": ").unwrap())
-            .map(|(total, numbers)| {
-                (
-                    total.parse::<u128>().unwrap(),
-                    numbers
-                        .split_whitespace()
-                        .map(|n| n.parse::<u128>().unwrap())
-                        .rev(),
-                )
-            })
-            .filter_map(|(original_total, numbers)| {
-                let mut search = VecDeque::from_iter([(original_total, numbers)]);
-
-                while let Some((total, mut numbers)) = search.pop_front() {
-                    let Some(n) = numbers.next() else {
-                        if total == 0 {
-                            return Some(original_total);
-                        }
-
-                        continue;
-                    };
-
-                    search.extend(
-                        [
-                            (n != 0 && total % n == 0).then(|| total / n),
-                            total.checked_sub(n),
-                            {
-                                let mask = 10u128
-                                    .pow(u32::try_from((n as f64).log10() as u64 + 1).unwrap());
-                                (total % mask == n).then_some(total / mask)
-                            },
-                        ]
-                        .into_iter()
-                        .flatten()
-                        .map(|total| (total, numbers.clone())),
-                    );
-                }
-
-                None
-            })
-            .sum(),
-    )
+    Some(solve(input, [check_mul, check_add, check_append]))
 }
 
 #[cfg(test)]
