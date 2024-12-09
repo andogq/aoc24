@@ -17,144 +17,123 @@ impl Display for Block {
     }
 }
 
-impl Block {
-    pub fn shrink(&mut self, shrink_size: u64) -> Option<u64> {
-        let size = match self {
-            Block::File { size, .. } => size,
-            Block::Free(size) => size,
-        };
+struct MoveAction {
+    amount: u64,
+    to: usize,
+}
 
-        *size = size.checked_sub(shrink_size)?;
-
-        Some(*size)
-    }
-
-    pub fn free(&mut self) {
-        let Self::File { size, .. } = self else {
-            return;
-        };
-
-        *self = Self::Free(*size);
-    }
+trait Solver {
+    fn process_file(
+        &mut self,
+        size: u64,
+        free_blocks: impl Iterator<Item = (usize, u64)>,
+    ) -> Vec<MoveAction>;
 }
 
 #[derive(Default)]
 struct FileSystem(Vec<Block>);
 
 impl FileSystem {
-    pub fn defrag(&mut self) {
-        let mut file_i = self.0.len();
+    pub fn solve(&mut self, mut solver: impl Solver) {
+        let mut i = self.0.len();
+        let mut last_id = self.files().map(|(id, _)| id).max().unwrap() + 1;
 
-        while file_i > 0 {
-            // Move backwards to next item
-            file_i -= 1;
+        while i > 0 {
+            // Move backwards to the next item
+            i -= 1;
 
-            let Block::File { id, size } = self.0[file_i] else {
+            // Only operate on files
+            let Block::File { id, size } = self.0[i] else {
                 continue;
             };
 
-            for _ in 0..size {
-                // Find a free block
-                let Some(free_i) = (0..file_i).find(|i| matches!(self.0[*i], Block::Free(_)))
-                else {
-                    // No more free blocks
-                    return;
-                };
-
-                // Move can take place, update values before indexes are invalidated
-                self.0[file_i].shrink(1).unwrap(); // Reduce file size
-                let new_free_size = self.0[free_i].shrink(1).unwrap(); // Reduce free size
-
-                if new_free_size == 0 {
-                    // Free block is empty, remove it
-                    self.0.remove(free_i);
-
-                    // Deleted something before the file, update the pointer
-                    file_i -= 1;
-                }
-
-                match free_i.checked_sub(1).map(|i| &mut self.0[i]) {
-                    Some(Block::File { id: prev_id, size }) if *prev_id == id => {
-                        // Re-use an existing block
-                        *size += 1;
-                    }
-                    _ => {
-                        // Insert a new one
-                        self.0.insert(free_i, Block::File { id, size: 1 });
-
-                        // Added something before the file, update the pointer
-                        file_i += 1;
-                    }
-                }
-            }
-
-            // File block is now empty, remove it
-            self.0.remove(file_i);
-        }
-    }
-
-    pub fn better_defrag(&mut self) {
-        let mut file_i = self.0.len();
-        let mut last_id = self
-            .0
-            .iter()
-            .rev()
-            .find_map(|b| {
-                if let Block::File { id, .. } = b {
-                    Some(*id)
-                } else {
-                    None
-                }
-            })
-            .unwrap()
-            + 1;
-
-        while file_i > 0 {
-            // Move backwards to next item
-            file_i -= 1;
-
-            // Fetch a file
-            let Block::File { id, size } = self.0[file_i] else {
-                continue;
-            };
-
+            // Don't re-process a file that's already been processed
             if id >= last_id {
                 continue;
             }
             last_id = id;
 
-            // Find a block
-            let Some((free_i, free_size)) =
-                self.0
-                    .iter_mut()
-                    .take(file_i)
-                    .enumerate()
-                    .find_map(|(i, block)| match block {
-                        Block::Free(free_size) if *free_size >= size => Some((i, free_size)),
-                        _ => None,
-                    })
-            else {
-                // No suitable free blocks found
-                continue;
-            };
+            // Run the solver
+            for MoveAction { amount, to } in solver.process_file(
+                size,
+                self.free_blocks().take_while(|(block_i, _)| *block_i < i),
+            ) {
+                let Block::Free(free_size) = &mut self.0[to] else {
+                    unreachable!();
+                };
 
-            // Update the free block size
-            *free_size -= size;
-            let free_size = *free_size;
+                assert!(*free_size >= amount);
 
-            // Free the space used by the file
-            self.0[file_i].free();
+                // Update the free block
+                *free_size -= amount;
 
-            // Remove the empty free block, if required
-            if free_size == 0 {
-                self.0.remove(free_i);
-                file_i -= 1;
+                // Remove the free block if it's empty
+                if *free_size == 0 {
+                    self.0.remove(to);
+                    i -= 1;
+                }
+
+                // Create or update an existing file
+                match to.checked_sub(1).map(|prev| &mut self.0[prev]) {
+                    Some(Block::File { id: prev_id, size }) if *prev_id == id => {
+                        // Re-use an existing file
+                        *size += amount;
+                    }
+                    _ => {
+                        // Insert a new one
+                        self.0.insert(to, Block::File { id, size: amount });
+
+                        // Added something before the file, update the pointer
+                        i += 1;
+                    }
+                }
+
+                // Update the old file
+                let Block::File { id: id2, size } = &mut self.0[i] else {
+                    unreachable!();
+                };
+
+                assert_eq!(id, *id2);
+                assert!(*size >= amount);
+
+                // Shink the file
+                *size -= amount;
+                let size = *size;
+
+                // Compensate with free space
+                match self.0.get_mut(i + 1) {
+                    Some(Block::Free(free_size)) => *free_size += amount,
+                    _ => {
+                        self.0.insert(i + 1, Block::Free(amount));
+                    }
+                }
+
+                // Remove the file if it's empty
+                if size == 0 {
+                    self.0.remove(i);
+                }
             }
-
-            // Insert the moved file block
-            self.0.insert(free_i, Block::File { id, size });
-            file_i += 1;
         }
+    }
+
+    fn files(&self) -> impl Iterator<Item = (u64, u64)> + '_ {
+        self.0.iter().filter_map(|block| {
+            if let Block::File { id, size } = block {
+                Some((*id, *size))
+            } else {
+                None
+            }
+        })
+    }
+
+    fn free_blocks(&self) -> impl Iterator<Item = (usize, u64)> + '_ {
+        self.0.iter().enumerate().filter_map(|(i, block)| {
+            if let Block::Free(size) = block {
+                Some((i, *size))
+            } else {
+                None
+            }
+        })
     }
 
     pub fn checksum(&mut self) -> u64 {
@@ -211,14 +190,57 @@ impl Display for FileSystem {
 }
 
 pub fn part_one(input: &str) -> Option<u64> {
+    struct Part1;
+    impl Solver for Part1 {
+        fn process_file(
+            &mut self,
+            mut size: u64,
+            free_blocks: impl Iterator<Item = (usize, u64)>,
+        ) -> Vec<MoveAction> {
+            free_blocks
+                .map_while(|(i, block_size)| {
+                    if size == 0 {
+                        return None;
+                    }
+
+                    let move_amount = block_size.min(size);
+                    size -= move_amount;
+
+                    Some(MoveAction {
+                        to: i,
+                        amount: move_amount,
+                    })
+                })
+                .collect()
+        }
+    }
+
     let mut fs = FileSystem::from(input);
-    fs.defrag();
+    fs.solve(Part1);
     Some(fs.checksum())
 }
 
 pub fn part_two(input: &str) -> Option<u64> {
+    struct Part2;
+    impl Solver for Part2 {
+        fn process_file(
+            &mut self,
+            size: u64,
+            mut free_blocks: impl Iterator<Item = (usize, u64)>,
+        ) -> Vec<MoveAction> {
+            free_blocks
+                .find(|(_, free)| *free >= size)
+                .map(|(i, _)| MoveAction {
+                    to: i,
+                    amount: size,
+                })
+                .into_iter()
+                .collect()
+        }
+    }
+
     let mut fs = FileSystem::from(input);
-    fs.better_defrag();
+    fs.solve(Part2);
     Some(fs.checksum())
 }
 
