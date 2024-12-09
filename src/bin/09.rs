@@ -18,15 +18,23 @@ impl Display for Block {
 }
 
 impl Block {
-    pub fn shrink(&mut self, size: u64) -> Option<u64> {
+    pub fn shrink(&mut self, shrink_size: u64) -> Option<u64> {
         let size = match self {
             Block::File { size, .. } => size,
             Block::Free(size) => size,
         };
 
-        *size = size.checked_sub(1)?;
+        *size = size.checked_sub(shrink_size)?;
 
         Some(*size)
+    }
+
+    pub fn free(&mut self) {
+        let Self::File { size, .. } = self else {
+            return;
+        };
+
+        *self = Self::Free(*size);
     }
 }
 
@@ -82,6 +90,70 @@ impl FileSystem {
 
             // File block is now empty, remove it
             self.0.remove(file_i);
+        }
+    }
+
+    pub fn better_defrag(&mut self) {
+        let mut file_i = self.0.len();
+        let mut last_id = self
+            .0
+            .iter()
+            .rev()
+            .find_map(|b| {
+                if let Block::File { id, .. } = b {
+                    Some(*id)
+                } else {
+                    None
+                }
+            })
+            .unwrap()
+            + 1;
+
+        while file_i > 0 {
+            // Move backwards to next item
+            file_i -= 1;
+
+            // Fetch a file
+            let Block::File { id, size } = self.0[file_i] else {
+                continue;
+            };
+
+            if id >= last_id {
+                continue;
+            }
+            last_id = id;
+
+            // Find a block
+            let Some((free_i, free_size)) =
+                self.0
+                    .iter_mut()
+                    .take(file_i)
+                    .enumerate()
+                    .find_map(|(i, block)| match block {
+                        Block::Free(free_size) if *free_size >= size => Some((i, free_size)),
+                        _ => None,
+                    })
+            else {
+                // No suitable free blocks found
+                continue;
+            };
+
+            // Update the free block size
+            *free_size -= size;
+            let free_size = *free_size;
+
+            // Free the space used by the file
+            self.0[file_i].free();
+
+            // Remove the empty free block, if required
+            if free_size == 0 {
+                self.0.remove(free_i);
+                file_i -= 1;
+            }
+
+            // Insert the moved file block
+            self.0.insert(free_i, Block::File { id, size });
+            file_i += 1;
         }
     }
 
@@ -145,7 +217,9 @@ pub fn part_one(input: &str) -> Option<u64> {
 }
 
 pub fn part_two(input: &str) -> Option<u64> {
-    None
+    let mut fs = FileSystem::from(input);
+    fs.better_defrag();
+    Some(fs.checksum())
 }
 
 #[cfg(test)]
@@ -161,6 +235,6 @@ mod tests {
     #[test]
     fn test_part_two() {
         let result = part_two(&advent_of_code::template::read_file("examples", DAY));
-        assert_eq!(result, None);
+        assert_eq!(result, Some(2858));
     }
 }
