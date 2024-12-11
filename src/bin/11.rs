@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 advent_of_code::solution!(11);
 
-pub fn part_one(input: &str) -> Option<u64> {
+fn blinker(input: &str, n: usize) -> u64 {
     let mut stones = input
         .split_whitespace()
         .map(|c| c.parse::<u64>().unwrap())
@@ -12,7 +12,7 @@ pub fn part_one(input: &str) -> Option<u64> {
             stones
         });
 
-    for _ in 0..25 {
+    for _ in 0..n {
         stones = stones
             .into_iter()
             .flat_map(|(stone, count)| {
@@ -38,11 +38,15 @@ pub fn part_one(input: &str) -> Option<u64> {
             });
     }
 
-    Some(stones.values().sum())
+    stones.values().sum()
+}
+
+pub fn part_one(input: &str) -> Option<u64> {
+    Some(blinker(input, 25))
 }
 
 pub fn part_two(input: &str) -> Option<u64> {
-    None
+    Some(blinker(input, 75))
 }
 
 #[cfg(test)]
@@ -58,6 +62,6 @@ mod tests {
     #[test]
     fn test_part_two() {
         let result = part_two(&advent_of_code::template::read_file("examples", DAY));
-        assert_eq!(result, None);
+        assert_eq!(result, Some(65601038650482));
     }
 }
